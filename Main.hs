@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, TypeFamilies, DeriveDataTypeable, TupleSections, OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell, TypeFamilies, DeriveDataTypeable, TupleSections, OverloadedStrings, RecordWildCards #-}
 
 import Network.IRC.Bot
 import Network.IRC (Message)
@@ -39,17 +39,35 @@ botChannel :: ByteString
 botChannel = "#snowdrift"
 --------------------------
 
+data UserPrefs = UserPrefs { upDoLog :: Bool } deriving (Show, Typeable)
+
+defaultUserPrefs = UserPrefs { upDoLog = False }
+
+-- Olden types, provided for safe-copy
+type UserName0 = String
+
+data TimeSlice0 = TimeSlice0
+                    { tsJoined0 :: Set UserName0
+                    , tsLeft0 :: Set UserName0
+                    , tsMessages0 :: [Message]
+                    } deriving (Typeable)
+
+data BotState0 = BotState0
+                    { bsLog0 :: Map UTCTime TimeSlice0
+                    , bsUserPrefs0 :: Map UserName0 UserPrefs
+                    } deriving (Typeable)
+
 type UserName = ByteString
 
+$(deriveSafeCopy 0 'base ''TimeSlice0)
+$(deriveSafeCopy 0 'base ''BotState0)
+
+-- Actual types
 data TimeSlice = TimeSlice
                     { tsJoined :: Set UserName
                     , tsLeft :: Set UserName
                     , tsMessages :: [Message]
                     } deriving (Typeable)
-
-data UserPrefs = UserPrefs { upDoLog :: Bool } deriving (Show, Typeable)
-
-defaultUserPrefs = UserPrefs { upDoLog = False }
 
 data BotState = BotState
                     { bsLog :: Map UTCTime TimeSlice
@@ -66,9 +84,23 @@ data Memo = Memo
 $(deriveSafeCopy 0 'base ''UserPrefs)
 $(deriveSafeCopy 0 'base ''IRC.Prefix)
 $(deriveSafeCopy 0 'base ''Message)
-$(deriveSafeCopy 0 'base ''TimeSlice)
-$(deriveSafeCopy 0 'base ''BotState)
+$(deriveSafeCopy 1 'extension ''TimeSlice)
+$(deriveSafeCopy 1 'extension ''BotState)
 $(deriveSafeCopy 0 'base ''Memo)
+
+instance Migrate TimeSlice where
+    type MigrateFrom TimeSlice = TimeSlice0
+    migrate (TimeSlice0{..}) =
+        TimeSlice (S.map BSC.pack tsJoined0)
+                  (S.map BSC.pack tsLeft0)
+                  (tsMessages0)
+
+instance Migrate BotState where
+    type MigrateFrom BotState = BotState0
+    migrate (BotState0{..}) =
+        BotState (fmap migrate bsLog0)
+                 (M.mapKeys BSC.pack bsUserPrefs0)
+                 (M.empty)
 
 instance Monoid TimeSlice where
     mappend a b = TimeSlice
